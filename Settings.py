@@ -13,7 +13,8 @@ def install_and_import(package, import_name=None):
 telebot = install_and_import('pyTelegramBotAPI', 'telebot')
 from telebot.async_telebot import AsyncTeleBot
 
-TOKEN = '6716462372:AAFtzj3Yu0R0rdCB-vwGLushyeqxR8RZiIQ'
+TOKEN = '7203359470:AAGUDQ0Lm4i8HBxuLKxcXUhEQwt-wWFw-fc'
 bot = AsyncTeleBot(TOKEN)
 user_states = {} # Состояние для отслеживания ввода
+
 user_refactor_states = {} # Состояния для отслеживания замены
