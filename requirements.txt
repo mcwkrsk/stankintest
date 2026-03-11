@@ -1,4 +1,5 @@
-logging
-asyncio
-aiosqlite
-pyTelegramBotAPI
+# requirements.txt
+python-dotenv==1.0.0
+aiosqlite==0.19.0
+pyTelegramBotAPI==4.14.0
+aiohttp==3.9.1

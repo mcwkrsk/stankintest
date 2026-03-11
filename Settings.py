@@ -1,20 +1,23 @@
 import os
 import sys
+from utils import install_and_import
 
-def install_and_import(package, import_name=None):
-    if import_name is None:
-        import_name = package
-    try:
-        return __import__(import_name)
-    except ImportError:
-        os.system(f"{sys.executable} -m pip install {package}")
-        return __import__(import_name)
+# Устанавливаем и импортируем python-dotenv
+dotenv = install_and_import('python-dotenv', 'dotenv')
+load_dotenv = dotenv.load_dotenv
 
+load_dotenv()
+
+# Импортируем асинхронного бота
 telebot = install_and_import('pyTelegramBotAPI', 'telebot')
 from telebot.async_telebot import AsyncTeleBot
 
-TOKEN = '7203359470:AAGUDQ0Lm4i8HBxuLKxcXUhEQwt-wWFw-fc'
-bot = AsyncTeleBot(TOKEN)
-user_states = {} # Состояние для отслеживания ввода
+TOKEN = os.getenv('BOT_TOKEN')
+if not TOKEN:
+    raise ValueError("Токен не найден! Проверьте файл .env")
 
-user_refactor_states = {} # Состояния для отслеживания замены
+bot = AsyncTeleBot(TOKEN)
+
+# Состояния пользователей для многошаговых диалогов
+user_states = {}           # основное состояние
+user_refactor_states = {}  # данные для подтверждения изменения/удаления ДЗ

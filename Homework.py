@@ -1,87 +1,96 @@
-import os
-import sys
-
-def install_and_import(package, import_name=None):
-    if import_name is None:
-        import_name = package
-    try:
-        return __import__(import_name)
-    except ImportError:
-        os.system(f"{sys.executable} -m pip install {package}")
-        return __import__(import_name)
-
-aiosqlite = install_and_import('aiosqlite')
-telebot = install_and_import('pyTelegramBotAPI', 'telebot')
+import logging
 from telebot import types
-
 import Settings
-async def search_in_database(value_1: str, value_2: str):
+from database import homework_dao, users_dao
+from utils import is_valid_date, normalize_group
+
+async def search_in_database(group: str, date: str):
+    """Поиск ДЗ по группе и дате"""
     try:
-        async with aiosqlite.connect('database/datahomework.db') as db:
-            async with db.execute("SELECT * FROM homework WHERE group_of = ? AND date_of = ?", (value_1, value_2)) as cursor:
-                rows = await cursor.fetchall()
-        return rows
-    except aiosqlite.OperationalError as e:
-        if "no such table" in str(e):
-            # Таблица не существует, нужно инициализировать базу
-            await init_database()
-            return []
-        else:
-            raise
+        return await homework_dao.get_homework(group, date)
+    except Exception as e:
+        logging.error(f"Ошибка при поиске ДЗ: {e}")
+        return []
 
+async def insert_into_database(group: str, date: str, subject: str, description: str):
+    """Добавление ДЗ"""
+    try:
+        await homework_dao.add_homework(group, date, subject, description)
+        return True
+    except Exception as e:
+        logging.error(f"Ошибка при добавлении ДЗ: {e}")
+        return False
 
-async def insert_into_database(group_of: str, date_of: str, homework: str, subject: str, user_id: str,message: str):
-    async with aiosqlite.connect('database/datahomework.db') as db:
-        await db.execute(
-            "INSERT INTO homework (group_of, date_of, description, subject) VALUES (?, ?, ?, ?)",
-            (group_of, date_of, homework, subject)
-        )
-        await db.commit()
-        await Settings.bot.reply_to(message, "🥰 Данные успешно добавлены! 🥰")  # Предполагается, что user_id - это id чата
+async def delete_from_database(group: str, date: str, subject: str):
+    """Удаление ДЗ"""
+    try:
+        await homework_dao.delete_homework(group, date, subject)
+        return True
+    except Exception as e:
+        logging.error(f"Ошибка при удалении ДЗ: {e}")
+        return False
 
-async def delete_row_into_database(group: str, date: str, subject: str, message: types.Message):
-    async with aiosqlite.connect('database/datahomework.db') as db:
-        await db.execute('DELETE FROM homework WHERE group_of = ? AND subject = ? AND date_of = ?',(group, subject, date))
-        await db.commit()
+async def update_in_database(group: str, date: str, subject: str, new_description: str):
+    """Обновление ДЗ"""
+    try:
+        await homework_dao.update_homework(group, date, subject, new_description)
+        return True
+    except Exception as e:
+        logging.error(f"Ошибка при обновлении ДЗ: {e}")
+        return False
 
-
-async def refactor_homework(message: types.Message, button_text: str):
-    group = Settings.user_refactor_states[message.from_user.id][0]
-    date = Settings.user_refactor_states[message.from_user.id][1]
-    subject = Settings.user_refactor_states[message.from_user.id][2]
-    homework = Settings.user_refactor_states[message.from_user.id][3]
-
-    if button_text == 'Изменить Д/З':
-        await delete_row_into_database(group, subject, date)
-        await insert_into_database(group, date, homework, subject, message.from_user.id, message)
-
-    elif button_text == 'Удалить Д/З':
-        await delete_row_into_database(group, subject, date, message)
-
-    Settings.user_refactor_states[message.from_user.id] = {}
-    await _homework_(message)
-
+async def homework_exists(group: str, date: str, subject: str) -> bool:
+    """Проверка существования ДЗ"""
+    try:
+        return await homework_dao.homework_exists(group, date, subject)
+    except Exception as e:
+        logging.error(f"Ошибка при проверке существования ДЗ: {e}")
+        return False
 
 async def _homework_(message):
+    """Меню раздела ДЗ"""
+    from handlers.common import show_main_menu  # чтобы избежать циклических импортов
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     user_id = str(message.from_user.id)
+    user_role = await users_dao.get_user_role(user_id)
 
-    async with aiosqlite.connect('database/datausers.db') as db:
-        async with db.execute("SELECT role FROM users WHERE id = ?", (user_id,)) as cursor:
-            user_role_row = await cursor.fetchone()
-            # Добавлена явная проверка на None и преобразование в строку
-            user_role = str(user_role_row[0]) if user_role_row and user_role_row[0] is not None else "student"
+    item1 = types.KeyboardButton('Проверить свою роль✅')
+    item2 = types.KeyboardButton('Вывести ДЗ🚀')
+    item3 = types.KeyboardButton('Назад')
 
-            item1 = types.KeyboardButton('Проверить свою роль✅')
-            item2 = types.KeyboardButton('Вывести ДЗ🚀')
-            item3 = types.KeyboardButton('Назад')
+    if user_role in ['elder', 'admin']:
+        item4 = types.KeyboardButton('Редактировать дз')
+        item5 = types.KeyboardButton('Добавить дз📝')
+        markup.add(item1, item2, item4, item5, item3)
+    else:
+        markup.add(item1, item2, item3)
 
-            # Добавление дополнительных кнопок для администраторов или старост
-            if user_role in ['elder', 'admin']:  # Теперь user_role гарантированно строка
-                item4 = types.KeyboardButton('Редактировать дз')
-                item5 = types.KeyboardButton('Добавить дз📝')
-                markup.add(item1, item2, item4, item5, item3)
-            else:
-                markup.add(item1, item2, item3)
+    await Settings.bot.send_message(message.chat.id, 'Выбери интересующий тебя раздел', reply_markup=markup)
 
-            await Settings.bot.send_message(message.chat.id, 'Выбери интересующий тебя раздел', reply_markup=markup)
+async def refactor_homework(message, button_text):
+    """Обработка подтверждения изменения/удаления ДЗ"""
+    user_id = message.from_user.id
+    if user_id not in Settings.user_refactor_states:
+        await Settings.bot.reply_to(message, "Ошибка: данные не найдены. Начните заново.")
+        return
+
+    group, date, subject, description = Settings.user_refactor_states[user_id]
+
+    if button_text == 'Изменить Д/З':
+        await delete_from_database(group, date, subject)
+        success = await insert_into_database(group, date, subject, description)
+        if success:
+            await Settings.bot.reply_to(message, "✅ ДЗ успешно изменено!")
+        else:
+            await Settings.bot.reply_to(message, "❌ Ошибка при изменении ДЗ.")
+
+    elif button_text == 'Удалить Д/З':
+        success = await delete_from_database(group, date, subject)
+        if success:
+            await Settings.bot.reply_to(message, "✅ ДЗ удалено.")
+        else:
+            await Settings.bot.reply_to(message, "❌ Ошибка при удалении ДЗ.")
+
+    # Очистка состояний
+    Settings.user_refactor_states.pop(user_id, None)
+    await _homework_(message)
